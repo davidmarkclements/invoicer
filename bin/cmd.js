@@ -20,7 +20,8 @@ var argv = require('minimist')(process.argv.slice(2), {
         i: 'interactive',
         m: 'mode',
         o: 'output',
-        t: 'template'
+        t: 'template',
+        t: 'tax'
     }
 });
 var outfile = argv.o;
@@ -89,12 +90,20 @@ function withConfig (cfg, expenses) {
     }
     
     var params = {
-        id: sprintf('%05d', cfg.id ++),
+        id: sprintf('%08d', cfg.id ++),
         name: cfg.name,
         address: cfg.address.replace(/\n/g, ' \\\\\n'),
+        payterms: cfg.payterms.replace(/\n/g, ' \\\\\n'),
+        compNo: cfg.compNo,
+        vatNo: cfg.vatNo,
+        footer: cfg.footer.replace(/\n/g, ' \\\\\n'),
         email: cfg.email,
         rcpt: argv.rcpt,
         expenses: expenses.reduce(function (acc, row) {
+            if (row.subtitle) { 
+                row.title += '\n\\newline\n' + row.subtitle + '\n\\vspace{.5em}\n'; 
+            }
+
             if (row.rate && row.hours) {
                 var title = row.title || 'consulting';
                 acc.push('{\\bf ' + title + '} & ');
@@ -107,13 +116,18 @@ function withConfig (cfg, expenses) {
             }
             if (row.items) {
                 var title = row.title || 'expenses';
+
                 acc.push('{\\bf ' + title + '} & ');
                 acc.push.apply(acc, row.items.map(function (r) {
                     return r.title + ' & ' + r.amount;
                 }));
             }
             if (row.amount) {
-                acc.push('{\\bf ' + row.title + '} & ' + row.amount);
+                var amount = row.amount;
+                if (cfg.cursym) {
+                  amount = cfg.cursym + amount;
+                }
+                acc.push('{\\bf ' + row.title + '} &  & ' + amount);
             }
             return acc;
             
@@ -147,13 +161,33 @@ function withConfig (cfg, expenses) {
                     acc += row.amount;
                 }
                 return acc;
-            }, 0), 100) + ' ' + cfg.currency;
+            }, 0), 100) 
+
+
+            var vat = cfg.vat || argv.t;
+            vat = (typeof vat !== 'undefined') ? vat : 'N/A';
+            vat = (typeof vat !== 'string' || vat === 'N/A') ? vat : parseFloat(vat);
+            if (vat !== 'N/A') {
+              vat = vat < 1 ? vat : vat / 100;
+              vat = round(amount * vat, 100);
+              amount += vat;  
+            }
+
+            if (cfg.cursym) {
+              amount = cfg.cursym + amount;
+              vat = vat === 'N/A' ? vat : cfg.cursym + vat;
+              rates = rates.map(function(rate) { return cfg.cursym + rate; })
+            } 
+            
+              
             
             return [
-                hours && ('{\\bf Total Hours} & {\\bf ' + hours + '}'),
-                hours && ('{\\bf Hourly Rate} & {\\bf '
+                hours && ('{\\bf Total Hours} &  & {\\bf ' + hours + '}'),
+                hours && ('{\\bf Hourly Rate} &  & {\\bf '
                     + rates.join(',') + ' ' + cfg.currency + '}'),
-                '{\\bf Total (' + cfg.currency + ')} & {\\bf ' + amount + '}',
+                '\\',
+                ' & {\\bf VAT} & {\\bf ' + vat + '}',
+                ' & {\\bf Total (' + cfg.currency + ')} & {\\bf ' + amount + '}',
                 '\\hline'
             ].filter(Boolean).join(' \\\\\n') + ' \\\\\n';
         })()
